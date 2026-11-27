@@ -164,6 +164,8 @@ def calendar(action, *, cards=None, scope=None, account_email=None, prune=False,
         command.extend(["-a", bundle, "--args", action, "--result-file", result])
         if action == "authorize":
             command.extend(["--permission-file", permission])
+        else:
+            command.extend(["--operation-lock-file", ROOT / "calendar-operation.lock"])
         if cards is not None:
             source = paths / "cards.json"
             write_json(source, cards)
@@ -191,11 +193,14 @@ def calendar(action, *, cards=None, scope=None, account_email=None, prune=False,
         return response
 
 
-def sync(codex):
+def sync(codex, *, snapshot=None):
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         ensure_plugin_enabled(codex)
-        snapshot = read_snapshot(codex)
+        if snapshot is None:
+            snapshot = read_snapshot(codex)
+        if snapshot.scope is None:
+            raise SyncError("Codex 没有返回可确认的账号标识，已跳过本次日历同步。")
         result = calendar(
             "sync", cards=snapshot.cards, scope=snapshot.scope,
             account_email=snapshot.account_email, prune=snapshot.prune,
@@ -231,7 +236,12 @@ def verify(snapshot):
     return result
 
 
-def build_helper(destination):
+def authorize_helper(bundle):
+    print("正在检查日历权限…", flush=True)
+    calendar("authorize", bundle=bundle)
+
+
+def build_helper(destination, *, authorize=False):
     source = SCRIPTS / "CalendarSync.swift"
     info = SCRIPTS / "CalendarInfo.plist"
     fingerprint = hashlib.sha256(
@@ -242,9 +252,12 @@ def build_helper(destination):
     if bundle.is_dir() and stamp.exists() and stamp.read_text().strip() == fingerprint:
         try:
             run(["/usr/bin/codesign", "--verify", bundle], "日历助手签名无法验证。")
-            return bundle
         except SyncError:
             pass
+        else:
+            if authorize:
+                authorize_helper(bundle)
+            return bundle
 
     with tempfile.TemporaryDirectory(prefix="build-", dir=destination) as directory:
         build = Path(directory)
@@ -270,11 +283,15 @@ def build_helper(destination):
             bundle.rename(previous)
         try:
             app.rename(bundle)
-        except OSError:
+            if authorize:
+                authorize_helper(bundle)
+            write_private(stamp, (fingerprint + "\n").encode())
+        except (SyncError, OSError, KeyboardInterrupt):
+            if bundle.exists():
+                bundle.rename(app)
             if previous.exists():
                 previous.rename(bundle)
             raise
-        write_private(stamp, (fingerprint + "\n").encode())
     return bundle
 
 
@@ -354,10 +371,9 @@ def install(marketplace_file):
     ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
     with sync_lock():
         print("正在检查 Codex 账号并准备日历助手…", flush=True)
-        original = read_snapshot(codex)
-        build_helper(ROOT)
-        print("正在检查日历权限…", flush=True)
-        calendar("authorize")
+        if read_snapshot(codex).scope is None:
+            raise SyncError("Codex 没有返回可确认的账号标识，请先确认已登录。")
+        build_helper(ROOT, authorize=True)
         if marketplace_file:
             register_plugin(codex, marketplace_file)
         worker = ROOT / "worker"
@@ -365,9 +381,10 @@ def install(marketplace_file):
         for filename in ("manage.py", "read_cards.py"):
             write_private(worker / filename, (SCRIPTS / filename).read_bytes())
         write_json(ROOT / "config.json", {"codex": codex})
-        first = sync(codex)
+        snapshot = read_snapshot(codex)
+        first = sync(codex, snapshot=snapshot)
+        verify(snapshot)
         install_job()
-        verify(original)
     print(f"已启动后台同步，每 {INTERVAL_SECONDS // 60} 分钟检查一次。")
     print(f"本次读取到 {first['cards']} 张带到期时间的有效重置卡。")
 

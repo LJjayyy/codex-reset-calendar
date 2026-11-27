@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "codex-reset-calendar",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "将 Codex 重置卡到期时间同步到苹果日历。",
   "extensions": {
     "com.openai": {

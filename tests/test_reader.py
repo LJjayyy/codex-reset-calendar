@@ -101,7 +101,7 @@ class ReaderTests(unittest.TestCase):
     def test_validation_preserves_valid_addresses_and_rejects_unsafe_values(self):
         maximum = f"{'a' * 64}@{'b' * 63}.{'c' * 63}.{'d' * 61}"
         self.assertEqual(len(maximum), 254)
-        for address in ["x@EXAMPLE.com", "名.字@例子.测试", maximum]:
+        for address in ["x@EXAMPLE.com", "名.字@例子.测试", "名.字@例子。测试", maximum]:
             self.assertEqual(validated_email(address), address)
         for invalid in [
             None,

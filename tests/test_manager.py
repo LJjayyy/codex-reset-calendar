@@ -19,6 +19,9 @@ class ManagerTests(unittest.TestCase):
 
         def verify_command(command, *args, **kwargs):
             self.assertNotIn(address, " ".join(map(str, command)))
+            self.assertEqual(
+                command[command.index("--operation-lock-file") + 1], manage.ROOT / "calendar-operation.lock",
+            )
             address_file = command[command.index("--account-email-file") + 1]
             self.assertEqual(address_file.read_text(), address)
             self.assertEqual(address_file.stat().st_mode & 0o777, 0o600)
@@ -114,6 +117,58 @@ class ManagerTests(unittest.TestCase):
                 manage.sync("/fake/codex")
             read.assert_not_called()
             helper.assert_not_called()
+
+    def test_scope_less_snapshot_never_updates_calendar(self):
+        snapshot = manage.CardSnapshot([{"id": "a" * 64, "expiresAt": 2_000_000_000}], None, False, None)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(manage, "ROOT", Path(directory)), \
+                 patch.object(manage, "plugin_enabled", return_value=True), \
+                 patch.object(manage, "calendar") as helper, \
+                 self.assertRaisesRegex(manage.SyncError, "已跳过本次日历同步"):
+                manage.sync("/fake/codex", snapshot=snapshot)
+            helper.assert_not_called()
+
+    def test_install_verifies_same_fresh_snapshot_before_starting_job(self):
+        before = manage.CardSnapshot([], "a" * 64, True, None)
+        after = manage.CardSnapshot([], "b" * 64, True, None)
+        completed = []
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(manage, "ROOT", Path(directory)), \
+                 patch.object(manage.platform, "system", return_value="Darwin"), \
+                 patch.object(manage.platform, "mac_ver", return_value=("14.0", (), "")), \
+                 patch.object(manage, "codex_path", return_value="/fake/codex"), \
+                 patch.object(manage, "ensure_plugin_enabled"), \
+                 patch.object(manage, "read_snapshot", side_effect=(before, after)), \
+                 patch.object(manage, "build_helper") as build, \
+                 patch.object(manage, "sync", return_value={"cards": 0}) as sync, \
+                 patch.object(manage, "verify", side_effect=lambda snapshot: completed.append("verify")) as verify, \
+                 patch.object(manage, "install_job", side_effect=lambda: completed.append("start")), \
+                 patch("builtins.print"):
+                manage.install(None)
+                build.assert_called_once_with(Path(directory), authorize=True)
+                sync.assert_called_once_with("/fake/codex", snapshot=after)
+                verify.assert_called_once_with(after)
+        self.assertEqual(completed, ["verify", "start"])
+
+    def test_canceled_calendar_access_restores_the_previous_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = root / manage.BUNDLE_NAME
+            bundle.mkdir()
+            (bundle / "old-executable").write_bytes(b"old")
+            stamp = root / "calendar-build.txt"
+            stamp.write_text("old-build\n")
+
+            def compile_helper(command, *args, **kwargs):
+                if command[0] == "/usr/bin/swiftc":
+                    Path(command[-1]).write_bytes(b"new")
+
+            with patch.object(manage, "run", side_effect=compile_helper), \
+                 patch.object(manage, "authorize_helper", side_effect=manage.SyncError("denied")), \
+                 self.assertRaisesRegex(manage.SyncError, "denied"):
+                manage.build_helper(root, authorize=True)
+            self.assertEqual((bundle / "old-executable").read_bytes(), b"old")
+            self.assertEqual(stamp.read_text(), "old-build\n")
 
     def test_launch_job_is_local_and_periodic(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,3 +1,4 @@
+import Darwin
 import EventKit
 import Foundation
 
@@ -58,6 +59,7 @@ private struct Options {
     let command: String
     var inputFile: String?
     var permissionFile: String?
+    var operationLockFile: String?
     var scope: String?
     var accountEmail: String?
     var prune = false
@@ -73,7 +75,8 @@ private struct Options {
             switch argument {
             case "--prune":
                 prune = true
-            case "--input-file", "--result-file", "--permission-file", "--scope", "--account-email-file":
+            case "--input-file", "--result-file", "--permission-file", "--operation-lock-file",
+                 "--scope", "--account-email-file":
                 guard let value = rest.next(), !value.isEmpty, !value.hasPrefix("--") else {
                     throw SyncError("日历同步选项缺少值。")
                 }
@@ -81,6 +84,7 @@ private struct Options {
                 case "--input-file": inputFile = value
                 case "--result-file": break
                 case "--permission-file": permissionFile = value
+                case "--operation-lock-file": operationLockFile = value
                 case "--account-email-file": accountEmailFile = value
                 default:
                     guard isHash(value) else {
@@ -110,11 +114,24 @@ private func validAccountEmail(_ email: String) -> Bool {
     guard email.unicodeScalars.count <= 254, email.rangeOfCharacter(from: excluded) == nil else { return false }
     let parts = email.split(separator: "@", omittingEmptySubsequences: false)
     guard parts.count == 2, !parts[0].isEmpty else { return false }
-    let domain = parts[1].split(separator: ".", omittingEmptySubsequences: false)
+    let domain = parts[1].split(omittingEmptySubsequences: false) { ".。．｡".contains($0) }
     return domain.count >= 2 && domain.allSatisfy { part in
         !part.isEmpty && part.first != "-" && part.last != "-" &&
             part.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
     }
+}
+
+private func withCalendarOperationLock(_ path: String?, operation: () throws -> Result) throws -> Result {
+    guard let path else { return try operation() }
+    let descriptor = Darwin.open(path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else {
+        throw SyncError("无法打开日历操作锁。")
+    }
+    defer { _ = Darwin.close(descriptor) }
+    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        throw SyncError("上一轮日历操作尚未结束，请稍后重试。")
+    }
+    return try operation()
 }
 
 private struct AccountNoteLine {
@@ -322,22 +339,28 @@ private func requireCalendarAccess() throws {
     }
 }
 
+private func requireAccountScope(_ options: Options) throws -> String {
+    guard let scope = options.scope else {
+        throw SyncError("无法确认重置卡所属的 Codex 账号。")
+    }
+    return scope
+}
+
 private func eventIndex(
-    in calendar: EKCalendar, store: EKEventStore, after now: Date, through end: Date
+    in calendar: EKCalendar, store: EKEventStore, after now: Date, through end: Date, scope: String
 ) -> [String: [ManagedEvent]] {
     let events = futureEvents(in: calendar, store: store, after: now, through: end).compactMap(managedEvent)
-    return Dictionary(grouping: events, by: \.id)
+    return Dictionary(grouping: events.filter { $0.scope == scope }, by: \.id)
 }
 
 private func synchronize(_ options: Options, store: EKEventStore) throws -> Counts {
+    let scope = try requireAccountScope(options)
     try requireCalendarAccess()
 
     let now = Date()
     let cards = try futureCards(from: options.inputFile, after: now)
-    let canPrune = options.prune && options.scope != nil
-    guard !cards.isEmpty || canPrune else { return Counts() }
+    guard !cards.isEmpty || options.prune else { return Counts() }
 
-    let scope = options.scope ?? "-"
     let preferences = UserDefaults.standard
     let previousEnd = Date(timeIntervalSince1970: preferences.double(forKey: scanKey))
     let latestExpiry = cards.values.max() ?? now
@@ -358,7 +381,7 @@ private func synchronize(_ options: Options, store: EKEventStore) throws -> Coun
     }
 
     var counts = Counts()
-    var existing = eventIndex(in: calendar, store: store, after: now, through: end)
+    var existing = eventIndex(in: calendar, store: store, after: now, through: end, scope: scope)
 
     // Record the upper limit before commit so a later authoritative run can find long-lived events.
     if latestExpiry > previousEnd {
@@ -366,25 +389,20 @@ private func synchronize(_ options: Options, store: EKEventStore) throws -> Coun
     }
     do {
         for (id, expiry) in cards {
-            let candidates = existing.removeValue(forKey: id) ?? []
-            // A read without an account ID can see the card, but cannot establish ownership.
-            if scope == "-" && candidates.contains(where: { $0.scope != "-" }) { continue }
-            let scoped = candidates.filter { $0.scope == scope }
-            let unscoped = scope == "-" ? [] : candidates.filter { $0.scope == "-" }
-            let matches = scoped + unscoped
+            let matches = existing.removeValue(forKey: id) ?? []
             let match = matches.first
             let event = match?.event ?? EKEvent(eventStore: store)
             let isNew = matches.isEmpty
             let timeChanged = isNew || event.startDate != expiry
-            let linkChanged = match?.hasUsageLink != true || match?.scope != scope
+            let linkChanged = match?.hasUsageLink != true
             let refreshAlarms = timeChanged || match?.hasCurrentAlarmPolicy != true
             let end = expiry.addingTimeInterval(60)
             let scheduleChanged = timeChanged || event.endDate != end || event.isAllDay
             let currentTitle = event.title
             let notes = event.notes
-            let cleanedNotes = removingLegacyLink(from: notes, id: id, scope: match?.scope ?? scope)
+            let cleanedNotes = removingLegacyLink(from: notes, id: id, scope: scope)
             let updatedNotes = options.accountEmail.map { updatingAccountNote(in: cleanedNotes, email: $0) } ?? cleanedNotes
-            let hasStoredEmail = options.scope != nil && accountNoteLines(in: updatedNotes).contains {
+            let hasStoredEmail = accountNoteLines(in: updatedNotes).contains {
                 validAccountEmail($0.email)
             }
             let keepLegacyTitle = !hasStoredEmail && currentTitle?.hasPrefix(legacyTitlePrefix) == true
@@ -421,8 +439,8 @@ private func synchronize(_ options: Options, store: EKEventStore) throws -> Coun
                 counts.removed += 1
             }
         }
-        if canPrune {
-            for candidate in existing.values.joined() where candidate.scope == scope {
+        if options.prune {
+            for candidate in existing.values.joined() {
                 try store.remove(candidate.event, span: .thisEvent, commit: false)
                 counts.removed += 1
             }
@@ -438,6 +456,7 @@ private func synchronize(_ options: Options, store: EKEventStore) throws -> Coun
 }
 
 private func verify(_ options: Options, store: EKEventStore) throws -> Result {
+    let scope = try requireAccountScope(options)
     try requireCalendarAccess()
     let now = Date()
     let cards = try futureCards(from: options.inputFile, after: now)
@@ -457,7 +476,7 @@ private func verify(_ options: Options, store: EKEventStore) throws -> Result {
             duplicates: 0, alarms: 0, linked: 0, legacyLinks: 0, labeled: 0
         )
     }
-    let existing = eventIndex(in: calendar, store: store, after: now, through: end)
+    let existing = eventIndex(in: calendar, store: store, after: now, through: end, scope: scope)
     var verified = 0
     var missing = 0
     var duplicates = 0
@@ -466,12 +485,9 @@ private func verify(_ options: Options, store: EKEventStore) throws -> Result {
     var legacyLinks = 0
     var labeled = 0
     for (id, expiry) in cards {
-        let candidates = (existing[id] ?? []).filter {
-            options.scope == nil || $0.scope == options.scope || $0.scope == "-"
-        }
+        let candidates = existing[id] ?? []
         let matches = candidates.filter {
-            (options.scope == nil || $0.scope == options.scope) &&
-                $0.event.startDate == expiry && !$0.event.isAllDay
+            $0.event.startDate == expiry && !$0.event.isAllDay
         }
         duplicates += max(0, candidates.count - 1)
         if matches.isEmpty {
@@ -526,10 +542,13 @@ private struct CalendarSync {
                     }
                 }
                 result = Result(ok: true)
-            } else if options.command == "verify" {
-                result = try verify(options, store: store)
             } else {
-                result = Result(ok: true, counts: try synchronize(options, store: store))
+                result = try withCalendarOperationLock(options.operationLockFile) {
+                    if options.command == "verify" {
+                        return try verify(options, store: store)
+                    }
+                    return Result(ok: true, counts: try synchronize(options, store: store))
+                }
             }
         } catch let error as SyncError {
             result = Result(ok: false, error: error.message)

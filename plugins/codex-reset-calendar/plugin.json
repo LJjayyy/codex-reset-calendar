@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codex-reset-calendar",
+  "version": "0.3.1",
+  "description": "将 Codex 重置卡到期时间同步到苹果日历。",
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/codex-reset-calendar/SKILL.md",
+      "interface": {
+        "displayName": "Codex 重置卡日历",
+        "shortDescription": "将新重置卡的到期时间同步到 iCloud 日历",
+        "longDescription": "通过 Mac 后台任务定期读取重置卡，并在 iCloud 日历里创建到期提醒。",
+        "category": "Productivity",
+        "defaultPrompt": ["查看 Codex 重置卡日历的同步状态。"]
+      }
+    }
+  }
+}

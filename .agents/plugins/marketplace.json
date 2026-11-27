@@ -1,0 +1,11 @@
+{
+  "name": "reset-calendar-local",
+  "interface": {"displayName": "重置卡日历"},
+  "plugins": [{
+    "name": "codex-reset-calendar",
+    "source": {"source": "local", "path": "./plugins/codex-reset-calendar"},
+    "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+    "interface": {"displayName": "Codex 重置卡日历"},
+    "category": "Productivity"
+  }]
+}

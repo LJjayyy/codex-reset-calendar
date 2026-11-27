@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>local.codex.reset-calendar.helper</string>
+  <key>CFBundleExecutable</key>
+  <string>CalendarSync</string>
+  <key>CFBundleName</key>
+  <string>Codex 重置卡日历</string>
+  <key>CFBundleDisplayName</key>
+  <string>Codex 重置卡日历</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.3.1</string>
+  <key>CFBundleVersion</key>
+  <string>5</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>在专用 iCloud 日历中查找、添加和更新 Codex 重置卡到期提醒。</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>在专用 iCloud 日历中查找、添加和更新 Codex 重置卡到期提醒。</string>
+</dict>
+</plist>

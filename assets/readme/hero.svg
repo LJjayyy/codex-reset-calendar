@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="440" viewBox="0 0 1200 440"
+     role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">Codex 重置卡日历 — 自动同步 Codex 重置卡到期时间到苹果日历</title>
+  <desc id="hero-desc">macOS 本地 Codex 插件，每 10 分钟自动检查有效重置卡，同步到 iCloud 苹果日历并在到期前 7 天、3 天、1 天、1 小时提醒。</desc>
+
+  <defs>
+    <clipPath id="card-clip">
+      <rect x="0" y="0" width="484" height="352" rx="20"/>
+    </clipPath>
+  </defs>
+
+  <!-- Canvas background -->
+  <rect width="1200" height="440" rx="24" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+
+  <!-- Left: Project value proposition -->
+  <g transform="translate(56 48)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+    <!-- Category badge -->
+    <rect x="0" y="0" width="352" height="38" rx="19" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="1.5"/>
+    <circle cx="22" cy="19" r="5" fill="#16A34A"/>
+    <text x="38" y="25" font-size="18" font-weight="600" fill="#065F46">macOS · Apple 日历 · Codex 插件</text>
+
+    <!-- Title -->
+    <text x="0" y="102" font-size="52" font-weight="800" fill="#0F172A" letter-spacing="-0.5">Codex 重置卡日历</text>
+
+    <!-- Plain-language promise -->
+    <text x="0" y="154" font-size="23" font-weight="500" fill="#334155">把有效重置卡到期时间，自动写进苹果日历</text>
+    <text x="0" y="192" font-size="21" font-weight="400" fill="#475569">后台每 10 分钟检查，关掉 Codex 也按时提醒</text>
+
+    <!-- Key capability pills -->
+    <g transform="translate(0 238)">
+      <rect x="0" y="0" width="174" height="44" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+      <text x="87" y="29" text-anchor="middle" font-size="20" font-weight="600" fill="#1E293B">iCloud 跨端同步</text>
+
+      <rect x="190" y="0" width="174" height="44" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+      <text x="277" y="29" text-anchor="middle" font-size="20" font-weight="600" fill="#1E293B">多账号自动区分</text>
+
+      <rect x="380" y="0" width="174" height="44" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+      <text x="467" y="29" text-anchor="middle" font-size="20" font-weight="600" fill="#1E293B">已用卡自动清理</text>
+    </g>
+
+    <!-- Quiet runtime requirements -->
+    <text x="0" y="330" font-size="18" fill="#64748B">需 macOS 14+ · 本地后台运行 · 支持 iPhone 同账号同步查看</text>
+  </g>
+
+  <!-- Right: Apple Calendar event preview card -->
+  <g transform="translate(660 44)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+    <!-- Subtle depth offset -->
+    <rect x="8" y="10" width="484" height="352" rx="20" fill="#CBD5E1" opacity="0.45"/>
+
+    <!-- Card body -->
+    <rect x="0" y="0" width="484" height="352" rx="20" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+
+    <!-- Apple Calendar coral-red header -->
+    <g clip-path="url(#card-clip)">
+      <rect x="0" y="0" width="484" height="62" fill="#E5484D"/>
+      <!-- Calendar icon motif -->
+      <rect x="24" y="16" width="30" height="30" rx="7" fill="#FFFFFF" opacity="0.22"/>
+      <rect x="31" y="21" width="16" height="4" rx="2" fill="#FFFFFF"/>
+      <rect x="31" y="29" width="10" height="4" rx="2" fill="#FFFFFF"/>
+      <text x="66" y="39" font-size="22" font-weight="700" fill="#FFFFFF">Codex 重置卡</text>
+
+      <!-- iCloud pill -->
+      <rect x="378" y="15" width="84" height="32" rx="16" fill="#FFFFFF" opacity="0.22"/>
+      <text x="420" y="37" text-anchor="middle" font-size="18" font-weight="600" fill="#FFFFFF">iCloud</text>
+    </g>
+
+    <!-- Event title & status -->
+    <text x="28" y="106" font-size="26" font-weight="700" fill="#0F172A">Codex 重置卡到期</text>
+
+    <rect x="28" y="124" width="428" height="42" rx="10" fill="#F1F5F9"/>
+    <circle cx="48" cy="145" r="5" fill="#E5484D"/>
+    <text x="64" y="152" font-size="20" font-weight="500" fill="#334155">每张有效卡对应 1 条到期日程 · 自动更新</text>
+
+    <!-- Account & URL metadata -->
+    <text x="28" y="198" font-size="18" fill="#64748B">账号备注</text>
+    <text x="116" y="198" font-size="20" font-weight="500" fill="#0F172A">Codex 账号：name@example.com</text>
+
+    <text x="28" y="232" font-size="18" fill="#64748B">用量链接</text>
+    <text x="116" y="232" font-size="20" font-weight="500" fill="#2563EB">chatgpt.com/settings/usage</text>
+
+    <!-- Divider -->
+    <line x1="28" y1="254" x2="456" y2="254" stroke="#E2E8F0" stroke-width="1.5"/>
+
+    <!-- Reminder timeline -->
+    <text x="28" y="280" font-size="18" font-weight="600" fill="#64748B">到期前自动触发 4 次提醒</text>
+    <g transform="translate(28 294)">
+      <rect x="0" y="0" width="98" height="38" rx="10" fill="#FEF2F2" stroke="#FECACA" stroke-width="1.5"/>
+      <text x="49" y="26" text-anchor="middle" font-size="20" font-weight="600" fill="#B91C1C">7 天前</text>
+
+      <rect x="110" y="0" width="98" height="38" rx="10" fill="#FEF2F2" stroke="#FECACA" stroke-width="1.5"/>
+      <text x="159" y="26" text-anchor="middle" font-size="20" font-weight="600" fill="#B91C1C">3 天前</text>
+
+      <rect x="220" y="0" width="98" height="38" rx="10" fill="#FEF2F2" stroke="#FECACA" stroke-width="1.5"/>
+      <text x="269" y="26" text-anchor="middle" font-size="20" font-weight="600" fill="#B91C1C">1 天前</text>
+
+      <rect x="330" y="0" width="98" height="38" rx="10" fill="#E5484D"/>
+      <text x="379" y="26" text-anchor="middle" font-size="20" font-weight="700" fill="#FFFFFF">1 小时前</text>
+    </g>
+  </g>
+</svg>

@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import plistlib
 import tempfile
@@ -150,6 +151,38 @@ class ManagerTests(unittest.TestCase):
                 verify.assert_called_once_with(after)
         self.assertEqual(completed, ["verify", "start"])
 
+    def test_first_setup_stops_reading_cards_if_disabled_during_authorization(self):
+        enabled = True
+
+        def plugin_state(*args, **kwargs):
+            return SimpleNamespace(stdout=json.dumps({"installed": [{
+                "pluginId": f"{manage.PLUGIN}@{manage.MARKET}",
+                "installed": True,
+                "enabled": enabled,
+            }]}))
+
+        def authorize(*args, **kwargs):
+            nonlocal enabled
+            enabled = False
+
+        snapshot = manage.CardSnapshot([], "a" * 64, True, None)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "new-install"
+            with patch.object(manage, "ROOT", root), \
+                 patch.object(manage.platform, "system", return_value="Darwin"), \
+                 patch.object(manage.platform, "mac_ver", return_value=("14.0", (), "")), \
+                 patch.object(manage, "codex_path", return_value="/fake/codex"), \
+                 patch.object(manage, "run", side_effect=plugin_state), \
+                 patch.object(manage, "read_snapshot", return_value=snapshot) as read, \
+                 patch.object(manage, "build_helper", side_effect=authorize), \
+                 patch.object(manage, "calendar") as calendar, \
+                 patch.object(manage, "install_job") as job, patch("builtins.print"), \
+                 self.assertRaises(manage.PluginDisabled):
+                manage.install(None)
+            read.assert_called_once_with("/fake/codex")
+            calendar.assert_not_called()
+            job.assert_not_called()
+
     def test_canceled_calendar_access_restores_the_previous_helper(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -170,7 +203,31 @@ class ManagerTests(unittest.TestCase):
             self.assertEqual((bundle / "old-executable").read_bytes(), b"old")
             self.assertEqual(stamp.read_text(), "old-build\n")
 
-    def test_launch_job_is_local_and_periodic(self):
+    def test_existing_install_migrates_when_codex_usage_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            job = root / "existing-job.plist"
+            job.touch()
+            (root / "config.json").write_text('{"codex":"/old/codex"}')
+            previous_status = '{"ok": true, "cards": 2}'
+            (root / "status.json").write_text(previous_status)
+            with patch.object(manage, "ROOT", root), patch.object(manage, "JOB", job), \
+                 patch.object(manage.platform, "system", return_value="Darwin"), \
+                 patch.object(manage.platform, "mac_ver", return_value=("14.0", (), "")), \
+                 patch.object(manage, "codex_path", return_value="/fake/codex"), \
+                 patch.object(manage, "ensure_plugin_enabled"), \
+                 patch.object(manage, "run", side_effect=manage.SyncError("读卡暂不可用")), \
+                 patch.object(manage, "build_helper") as build, \
+                 patch.object(manage, "calendar") as calendar, \
+                 patch.object(manage, "install_job") as install_job, patch("builtins.print"):
+                manage.install(None)
+            build.assert_called_once_with(root, authorize=True)
+            install_job.assert_called_once_with()
+            calendar.assert_not_called()
+            self.assertEqual((root / "status.json").read_text(), previous_status)
+            self.assertEqual(json.loads((root / "config.json").read_text()), {"codex": "/fake/codex"})
+
+    def test_launch_job_is_local_and_kept_alive(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             job = root / "LaunchAgents" / f"{manage.LABEL}.plist"
@@ -180,9 +237,60 @@ class ManagerTests(unittest.TestCase):
                 manage.install_job()
             config = plistlib.loads(job.read_bytes())
             self.assertTrue(config["RunAtLoad"])
-            self.assertEqual(config["StartInterval"], 600)
-            self.assertEqual(config["ProgramArguments"][-2:], [str(root / "worker/manage.py"), "sync"])
+            self.assertTrue(config["KeepAlive"])
+            self.assertNotIn("StartInterval", config)
+            self.assertEqual(config["ProgramArguments"][-2:], [str(root / "worker/manage.py"), "worker"])
             self.assertEqual(launchctl.call_args.args[0][1], "bootstrap")
+
+    def test_launch_job_uses_the_same_custom_codex_home_as_setup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            job = root / "LaunchAgents" / f"{manage.LABEL}.plist"
+            custom = root / "another-codex-home"
+            with patch.object(manage, "ROOT", root), patch.object(manage, "JOB", job), \
+                 patch.dict(os.environ, {"CODEX_HOME": str(custom)}), \
+                 patch.object(manage, "loaded", return_value=False), patch.object(manage, "run"):
+                manage.install_job()
+            self.assertEqual(plistlib.loads(job.read_bytes())["EnvironmentVariables"], {
+                "CODEX_HOME": str(custom.resolve()),
+            })
+
+    def test_plugin_enabled_validates_shape_and_distinguishes_unknown(self):
+        plugin_id = f"{manage.PLUGIN}@{manage.MARKET}"
+
+        def entry(**fields):
+            return {"pluginId": plugin_id, "installed": True, "enabled": True, **fields}
+
+        malformed = [
+            {"installed": {"pluginId": plugin_id}},
+            {"installed": "yes"},
+            {"installed": ["not-an-object"]},
+            {"installed": [entry(installed="yes")]},
+            {"installed": [entry(enabled=1)]},
+            {"installed": [{"pluginId": plugin_id, "installed": True}]},
+            {"installed": [{"pluginId": plugin_id, "enabled": True}]},
+            {"installed": [{"pluginId": plugin_id, "installed": None, "enabled": True}]},
+        ]
+        for payload in malformed:
+            with self.subTest(payload=payload):
+                with patch.object(manage, "run", return_value=SimpleNamespace(stdout=json.dumps(payload))):
+                    self.assertIsNone(manage.plugin_enabled("/fake/codex"))
+
+        for value, expected in ((False, False), (True, True)):
+            with patch.object(
+                manage, "run",
+                return_value=SimpleNamespace(stdout=json.dumps({"installed": [entry(enabled=value)]})),
+            ):
+                self.assertIs(manage.plugin_enabled("/fake/codex"), expected)
+
+    def test_plugin_enabled_defaults_to_stable_neutral_cwd(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(manage, "ROOT", root), \
+                 patch.object(manage, "run", return_value=SimpleNamespace(stdout='{"installed": []}')) as runner:
+                self.assertIs(manage.plugin_enabled("/fake/codex"), False)
+            self.assertEqual(runner.call_args.kwargs["cwd"], root / "codex-cwd")
+            self.assertTrue((root / "codex-cwd").is_dir())
 
 
 if __name__ == "__main__":

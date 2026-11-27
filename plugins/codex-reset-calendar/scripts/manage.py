@@ -25,6 +25,9 @@ MARKET = "reset-calendar-local"
 LABEL = "local.codex.reset-calendar"
 BUNDLE_NAME = "Codex 重置卡日历.app"
 INTERVAL_SECONDS = 600
+POLL_SECONDS = 2
+RETRY_SECONDS = 30
+_UNSET = object()
 DESKTOP_CODEX = (
     Path("/Applications/ChatGPT.app/Contents/Resources/codex-cli")
     / "CodexCLI.app/Contents/MacOS/codex"
@@ -41,6 +44,14 @@ class SyncError(Exception):
     pass
 
 
+class PluginDisabled(SyncError):
+    pass
+
+
+class SnapshotUnavailable(SyncError):
+    pass
+
+
 class CardSnapshot(NamedTuple):
     cards: list
     scope: Optional[str]
@@ -48,7 +59,7 @@ class CardSnapshot(NamedTuple):
     account_email: Optional[str]
 
 
-def run(command, message, *, timeout=45, show=False):
+def run(command, message, *, timeout=45, show=False, cwd=None):
     try:
         return subprocess.run(
             [str(part) for part in command],
@@ -58,6 +69,7 @@ def run(command, message, *, timeout=45, show=False):
             capture_output=not show,
             check=True,
             timeout=timeout,
+            cwd=cwd,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise SyncError(message) from error
@@ -92,6 +104,20 @@ def sync_lock():
         yield
 
 
+def config_toml(env=None):
+    env = os.environ if env is None else env
+    home = env.get("CODEX_HOME")
+    return Path(home) / "config.toml" if home else Path.home() / ".codex" / "config.toml"
+
+
+def config_fingerprint(path):
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_ino, stat.st_mtime_ns, stat.st_size)
+
+
 def codex_path():
     for candidate in (DESKTOP_CODEX, shutil.which("codex")):
         if candidate and os.access(candidate, os.X_OK):
@@ -100,11 +126,14 @@ def codex_path():
 
 
 def read_snapshot(codex):
-    result = run(
-        [sys.executable, SCRIPTS / "read_cards.py", "--codex", codex],
-        "读取 Codex 重置卡失败。请确认 Mac 已联网，并在 Codex 登录 ChatGPT。",
-        timeout=55,
-    )
+    try:
+        result = run(
+            [sys.executable, SCRIPTS / "read_cards.py", "--codex", codex],
+            "读取 Codex 重置卡失败。请确认 Mac 已联网，并在 Codex 登录 ChatGPT。",
+            timeout=55,
+        )
+    except SyncError as error:
+        raise SnapshotUnavailable(str(error)) from error
     try:
         payload = json.loads(result.stdout)
         cards = payload["cards"]
@@ -131,23 +160,44 @@ def read_snapshot(codex):
     return CardSnapshot(cards, scope, prune, account_email)
 
 
-def plugin_enabled(codex):
-    result = run(
-        [codex, "plugin", "list", "--marketplace", MARKET, "--json"],
-        "无法确认 Codex 插件是否已启用。",
-        timeout=15,
-    )
+def neutral_cwd():
+    """A stable directory outside any project, shared by all sync callers."""
+    path = ROOT / "codex-cwd"
+    path.mkdir(mode=0o700, exist_ok=True)
+    return path
+
+
+def plugin_enabled(codex, cwd=None):
     try:
+        result = run(
+            [codex, "plugin", "list", "--marketplace", MARKET, "--json"],
+            "无法确认 Codex 插件是否已启用。",
+            timeout=15,
+            cwd=neutral_cwd() if cwd is None else cwd,
+        )
         installed = json.loads(result.stdout)["installed"]
-        matches = [entry for entry in installed if entry["pluginId"] == f"{PLUGIN}@{MARKET}"]
-        return len(matches) == 1 and matches[0]["installed"] is True and matches[0]["enabled"] is True
-    except (KeyError, TypeError, ValueError) as error:
-        raise SyncError("无法确认 Codex 插件是否已启用。") from error
+        if type(installed) is not list:
+            raise ValueError
+        matches = []
+        for entry in installed:
+            if type(entry) is not dict:
+                raise ValueError
+            if entry.get("pluginId") == f"{PLUGIN}@{MARKET}":
+                matches.append(entry)
+        if len(matches) != 1:
+            return False
+        installed_flag = matches[0]["installed"]
+        enabled_flag = matches[0]["enabled"]
+        if type(installed_flag) is not bool or type(enabled_flag) is not bool:
+            raise ValueError
+        return installed_flag and enabled_flag
+    except (SyncError, KeyError, TypeError, ValueError, AttributeError):
+        return None
 
 
-def ensure_plugin_enabled(codex):
-    if not plugin_enabled(codex):
-        raise SyncError("Codex 重置卡日历插件已停用或卸载，同步已暂停。")
+def ensure_plugin_enabled(codex, cwd=None):
+    if plugin_enabled(codex, cwd=cwd) is not True:
+        raise PluginDisabled("Codex 重置卡日历插件已停用或卸载，同步已暂停。")
 
 
 def calendar(action, *, cards=None, scope=None, account_email=None, prune=False, bundle=None):
@@ -193,14 +243,15 @@ def calendar(action, *, cards=None, scope=None, account_email=None, prune=False,
         return response
 
 
-def sync(codex, *, snapshot=None):
+def sync(codex, *, snapshot=None, cwd=None):
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
-        ensure_plugin_enabled(codex)
+        ensure_plugin_enabled(codex, cwd=cwd)
         if snapshot is None:
             snapshot = read_snapshot(codex)
         if snapshot.scope is None:
             raise SyncError("Codex 没有返回可确认的账号标识，已跳过本次日历同步。")
+        ensure_plugin_enabled(codex, cwd=cwd)
         result = calendar(
             "sync", cards=snapshot.cards, scope=snapshot.scope,
             account_email=snapshot.account_email, prune=snapshot.prune,
@@ -215,11 +266,21 @@ def sync(codex, *, snapshot=None):
             "updated": counts["updated"],
             "removed": counts["removed"],
         }
+    except PluginDisabled:
+        raise
     except SyncError as error:
         write_json(ROOT / "status.json", {"ok": False, "checkedAt": timestamp, "error": str(error)})
         raise
     write_json(ROOT / "status.json", summary)
     return summary
+
+
+def locked_sync(codex, *, cwd=None, on_complete=None):
+    with sync_lock():
+        synced = sync(codex, cwd=cwd)
+        if on_complete:
+            on_complete()
+        return synced
 
 
 def verify(snapshot):
@@ -303,24 +364,46 @@ def loaded():
     ).returncode == 0
 
 
+def installed_worker_fingerprint():
+    digest = hashlib.sha256()
+    try:
+        for filename in ("manage.py", "read_cards.py"):
+            digest.update((ROOT / "worker" / filename).read_bytes())
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
 def install_job():
     JOB.parent.mkdir(exist_ok=True)
     config = {
         "Label": LABEL,
-        "ProgramArguments": [sys.executable, str(ROOT / "worker/manage.py"), "sync"],
+        "ProgramArguments": [sys.executable, str(ROOT / "worker/manage.py"), "worker"],
         "RunAtLoad": True,
-        "StartInterval": INTERVAL_SECONDS,
+        "KeepAlive": True,
         "LimitLoadToSessionType": "Aqua",
     }
+    if os.environ.get("CODEX_HOME"):
+        config["EnvironmentVariables"] = {"CODEX_HOME": str(config_toml().parent.resolve())}
     contents = plistlib.dumps(config)
     was_loaded = loaded()
     previous = JOB.read_bytes() if JOB.exists() else None
-    if was_loaded and previous == contents:
+    stamp = ROOT / "worker-build.txt"
+    previous_stamp = stamp.read_bytes() if stamp.exists() else None
+    previous_fingerprint = (
+        previous_stamp.decode("utf-8", "replace").strip() if previous_stamp is not None else None
+    )
+    fingerprint = installed_worker_fingerprint()
+    settings_unchanged = was_loaded and previous == contents
+    source_unchanged = fingerprint == previous_fingerprint
+    if settings_unchanged and source_unchanged:
         return
     if was_loaded:
         run(["/bin/launchctl", "bootout", SERVICE], "无法重新加载原有同步任务。")
     try:
         write_private(JOB, contents)
+        if fingerprint is not None:
+            write_private(stamp, (fingerprint + "\n").encode())
         run(["/bin/launchctl", "enable", SERVICE], "无法启用后台同步。")
         run(
             ["/bin/launchctl", "bootstrap", DOMAIN, JOB],
@@ -334,6 +417,10 @@ def install_job():
                 write_private(JOB, previous)
                 if was_loaded:
                     run(["/bin/launchctl", "bootstrap", DOMAIN, JOB], "无法恢复原有同步任务。")
+            if previous_stamp is None:
+                stamp.unlink(missing_ok=True)
+            else:
+                write_private(stamp, previous_stamp)
         raise
 
 
@@ -366,27 +453,41 @@ def install(marketplace_file):
     if platform.system() != "Darwin" or int(platform.mac_ver()[0].split(".")[0]) < 14:
         raise SyncError("需要运行 macOS 14 或更新版本的 Mac。")
     codex = codex_path()
-    if marketplace_file is None:
-        ensure_plugin_enabled(codex)
     ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
     with sync_lock():
+        config_path = ROOT / "config.json"
+        upgrading = JOB.is_file() and config_path.is_file()
         print("正在检查 Codex 账号并准备日历助手…", flush=True)
-        if read_snapshot(codex).scope is None:
+        if marketplace_file is None:
+            ensure_plugin_enabled(codex)
+        if not upgrading and read_snapshot(codex).scope is None:
             raise SyncError("Codex 没有返回可确认的账号标识，请先确认已登录。")
         build_helper(ROOT, authorize=True)
         if marketplace_file:
             register_plugin(codex, marketplace_file)
+        ensure_plugin_enabled(codex)
+        config = {"codex": codex}
+        first = None
+        try:
+            snapshot = read_snapshot(codex)
+        except SnapshotUnavailable:
+            if not upgrading:
+                raise
+        else:
+            first = sync(codex, snapshot=snapshot)
+            verify(snapshot)
+            config["syncedAt"] = time.time()
         worker = ROOT / "worker"
         worker.mkdir(mode=0o700, exist_ok=True)
         for filename in ("manage.py", "read_cards.py"):
             write_private(worker / filename, (SCRIPTS / filename).read_bytes())
-        write_json(ROOT / "config.json", {"codex": codex})
-        snapshot = read_snapshot(codex)
-        first = sync(codex, snapshot=snapshot)
-        verify(snapshot)
+        write_json(config_path, config)
         install_job()
     print(f"已启动后台同步，每 {INTERVAL_SECONDS // 60} 分钟检查一次。")
-    print(f"本次读取到 {first['cards']} 张带到期时间的有效重置卡。")
+    if first is None:
+        print("后台已升级。Codex 暂时无法读取重置卡，插件开启时会自动重试。")
+    else:
+        print(f"本次读取到 {first['cards']} 张带到期时间的有效重置卡。")
 
 
 def stop():
@@ -415,6 +516,73 @@ def status():
     ))
 
 
+class SyncScheduler:
+    """One clock decides when the next Codex check happens.
+
+    A config change wakes the check early, but only a state transition or the
+    scheduled time actually starts a sync. An unknown state is retried without
+    changing the last sync result.
+    """
+
+    def __init__(self, codex, clock, config_path, cwd, on_complete=None):
+        self.codex = codex
+        self.clock = clock
+        self.config_path = config_path
+        self.cwd = cwd
+        self.on_complete = on_complete
+        self.fingerprint = _UNSET
+        self.enabled = None
+        self.next_check_at = 0.0
+
+    def poll(self):
+        now = self.clock()
+        fingerprint = config_fingerprint(self.config_path)
+        changed = self.fingerprint is _UNSET or fingerprint != self.fingerprint
+        self.fingerprint = fingerprint
+        if not (changed or now >= self.next_check_at):
+            return False
+        was = self.enabled
+        self.enabled = plugin_enabled(self.codex, cwd=self.cwd)
+        if self.enabled is None:
+            self.next_check_at = self.clock() + RETRY_SECONDS
+            return False
+        if self.enabled is False:
+            self.next_check_at = now + INTERVAL_SECONDS
+            return False
+        if was is True and now < self.next_check_at:
+            return False
+        try:
+            locked_sync(self.codex, cwd=self.cwd, on_complete=self.on_complete)
+        except SyncError:
+            self.next_check_at = self.clock() + RETRY_SECONDS
+            return False
+        self.next_check_at = now + INTERVAL_SECONDS
+        return True
+
+
+def worker(*, clock=time.time, sleep=time.sleep, max_ticks=None):
+    config = read_json(ROOT / "config.json", "无法读取同步设置。")
+    codex = config["codex"]
+    neutral = neutral_cwd()
+
+    def complete():
+        current = read_json(ROOT / "config.json", "无法读取同步设置。")
+        current["syncedAt"] = clock()
+        write_json(ROOT / "config.json", current)
+
+    scheduler = SyncScheduler(codex, clock, config_toml(), neutral, on_complete=complete)
+    if config.get("syncedAt") is not None:
+        scheduler.enabled = True
+        scheduler.next_check_at = config["syncedAt"] + INTERVAL_SECONDS
+    tick = 0
+    while True:
+        scheduler.poll()
+        tick += 1
+        if max_ticks is not None and tick >= max_ticks:
+            return
+        sleep(POLL_SECONDS)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
@@ -422,7 +590,7 @@ def main():
     setup.add_argument("--marketplace", type=Path, help="Path to the packaged marketplace.json")
     build = commands.add_parser("build-helper")
     build.add_argument("destination", type=Path)
-    for action in ("check", "status", "sync", "stop", "verify"):
+    for action in ("check", "status", "sync", "stop", "verify", "worker"):
         commands.add_parser(action)
     args = parser.parse_args()
     try:
@@ -440,6 +608,8 @@ def main():
             }))
         elif args.action == "status":
             status()
+        elif args.action == "worker":
+            worker()
         elif args.action == "stop":
             stop()
         else:

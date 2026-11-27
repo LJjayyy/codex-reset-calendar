@@ -2,30 +2,30 @@
      width="1200" height="310" viewBox="0 0 1200 310"
      role="img" aria-labelledby="flow-title flow-desc">
   <title id="flow-title">三步安装并使用 Codex 重置卡日历</title>
-  <desc id="flow-desc">第一步让 AI 代装或双击安装.command；第二步允许完整访问苹果日历；第三步打开苹果日历查看 Codex 重置卡。随时可双击停止同步.command 暂停。</desc>
+  <desc id="flow-desc">第一步在 Codex 添加本地插件来源并安装插件；第二步点插件「设置」授权日历并校验首次同步；第三步用插件开关控制同步，在苹果日历查看 Codex 重置卡。关闭插件即暂停，退出 Codex 仍后台运行。</desc>
 
   <!-- Canvas background -->
   <rect width="1200" height="310" rx="24" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
 
   <g font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
     <!-- Section header row -->
-    <text x="48" y="54" font-size="28" font-weight="700" fill="#0F172A">三步开始使用，装好即自动运行</text>
+    <text x="48" y="54" font-size="28" font-weight="700" fill="#0F172A">三步开始使用，授权一次即用开关控制</text>
 
     <rect x="814" y="26" width="338" height="38" rx="19" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
-    <text x="983" y="51" text-anchor="middle" font-size="18" font-weight="500" fill="#475569">随时双击 停止同步.command 暂停</text>
+    <text x="983" y="51" text-anchor="middle" font-size="18" font-weight="500" fill="#475569">关闭插件即暂停 · 现有事件保留</text>
 
     <!-- Step 1 -->
     <g transform="translate(48 84)">
       <rect x="0" y="0" width="340" height="186" rx="16" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
       <circle cx="38" cy="38" r="16" fill="#E5484D"/>
       <text x="38" y="45" text-anchor="middle" font-size="20" font-weight="700" fill="#FFFFFF">1</text>
-      <text x="66" y="46" font-size="23" font-weight="700" fill="#0F172A">AI 代装或双击安装</text>
+      <text x="66" y="46" font-size="23" font-weight="700" fill="#0F172A">从 Codex 本地来源安装</text>
 
       <rect x="22" y="72" width="296" height="40" rx="10" fill="#F1F5F9"/>
-      <text x="170" y="99" text-anchor="middle" font-size="19" font-weight="600" fill="#0F172A">让 AI 装 · 安装.command</text>
+      <text x="170" y="99" text-anchor="middle" font-size="19" font-weight="600" fill="#0F172A">添加本地来源 · 安装插件</text>
 
-      <text x="22" y="138" font-size="19" fill="#475569">把仓库发给 AI 自动运行安装</text>
-      <text x="22" y="166" font-size="19" fill="#475569">或下载后双击 安装.command</text>
+      <text x="22" y="138" font-size="19" fill="#475569">把本仓库添加为本地插件来源</text>
+      <text x="22" y="166" font-size="19" fill="#475569">安装 Codex 重置卡日历</text>
     </g>
 
     <!-- Arrow 1 -> 2 -->
@@ -36,13 +36,13 @@
       <rect x="0" y="0" width="340" height="186" rx="16" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
       <circle cx="38" cy="38" r="16" fill="#E5484D"/>
       <text x="38" y="45" text-anchor="middle" font-size="20" font-weight="700" fill="#FFFFFF">2</text>
-      <text x="66" y="46" font-size="24" font-weight="700" fill="#0F172A">授予日历权限</text>
+      <text x="66" y="46" font-size="24" font-weight="700" fill="#0F172A">点插件「设置」授权</text>
 
       <rect x="22" y="72" width="296" height="40" rx="10" fill="#FEF2F2" stroke="#FECACA" stroke-width="1.5"/>
       <text x="170" y="99" text-anchor="middle" font-size="20" font-weight="600" fill="#B91C1C">选择「允许完整访问」</text>
 
-      <text x="22" y="138" font-size="19" fill="#475569">用于读写专属 iCloud 日历</text>
-      <text x="22" y="166" font-size="19" fill="#475569">自动创建并更新到期事件</text>
+      <text x="22" y="138" font-size="19" fill="#475569">首次同步并校验日历事件</text>
+      <text x="22" y="166" font-size="19" fill="#475569">完成一次即可，之后免设置</text>
     </g>
 
     <!-- Arrow 2 -> 3 -->
@@ -58,8 +58,8 @@
       <rect x="22" y="72" width="296" height="40" rx="10" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="1.5"/>
       <text x="170" y="99" text-anchor="middle" font-size="20" font-weight="600" fill="#065F46">日历：Codex 重置卡</text>
 
-      <text x="22" y="138" font-size="19" fill="#475569">Mac 与同账号 iPhone 同步</text>
-      <text x="22" y="166" font-size="19" fill="#475569">可在 Codex 对话中查状态</text>
+      <text x="22" y="138" font-size="19" fill="#475569">开关开启即同步 · 关闭即暂停</text>
+      <text x="22" y="166" font-size="19" fill="#475569">退出 Codex 仍后台运行</text>
     </g>
   </g>
 </svg>

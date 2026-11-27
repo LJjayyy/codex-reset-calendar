@@ -9,12 +9,27 @@
 ## 怎么用
 
 <p align="center">
-  <img src="./assets/readme/usage-flow.svg" width="100%" alt="三步使用流程：双击安装.command、允许完整日历访问权限、在苹果日历中查看 Codex 重置卡">
+  <img src="./assets/readme/usage-flow.svg" width="100%" alt="三步使用流程：让 AI 代装或双击安装.command、允许完整日历访问权限、在苹果日历中查看 Codex 重置卡">
 </p>
 
-1. 打开项目目录，双击 **安装.command**（自动注册 Codex 插件并启动后台同步）。
-2. 系统询问日历权限时，点击 **允许完整访问**。
-3. 打开苹果日历，查看 **Codex 重置卡**。
+### 1. 安装插件（二选一）
+
+- **方式一：让 AI 帮你安装（推荐）**  
+  直接把下面这句话发给 Codex 或本机 AI 助手：
+
+  ```text
+  帮我安装这个插件：https://github.com/LJjayyy/codex-reset-calendar
+  ```
+
+  > AI 拉取仓库后运行根目录的 `./安装.command` 即可完成注册与后台同步。运行文件会复制到系统应用支持目录，安装后删除临时目录也不影响使用；如果代码已在本地，直接对 AI 说「运行 `./安装.command` 帮我安装这个插件」。
+
+- **方式二：手动安装**  
+  下载或克隆本仓库后，打开项目目录，双击 **安装.command**。
+
+### 2. 授权并查看
+
+1. 系统询问日历权限时，点击 **允许完整访问**。
+2. 打开苹果日历，查看 **Codex 重置卡**。
 
 > **使用前提**：macOS 14+、已安装 Xcode Command Line Tools、Codex 已登录 ChatGPT、Mac 已开启 iCloud 日历。iPhone 使用同一 Apple 账户并开启 iCloud 日历同步即可一起收到提醒。\
 > 若 Codex 中暂未显示该插件，重启 ChatGPT 桌面 App 即可。
